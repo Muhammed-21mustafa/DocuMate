@@ -60,3 +60,20 @@ Soru:
 {question}
 
 Cevap:"""
+
+REWRITE_QUESTION_SYSTEM_PROMPT = """Sohbet geçmişi ve kullanıcının son sorusu aşağıda verilmiştir.
+
+Görev: Sohbet geçmişindeki bağlamı göz önüne alarak, kullanıcının son sorusunu tamamen bağımsız (standalone) ve kendi başına anlaşılır tek bir soru olarak yeniden yaz.
+
+KURALLAR:
+1. Son sorudaki 'bu', 'bunun', 'o', 'şundaki', 'yukarıdaki' gibi atıfları sohbet geçmişindeki açık kavramlarla değiştir.
+2. Soruyu CEVAPLAMA, SADECE yeniden yazılmış tek bir soru cümlesi üret.
+3. Eğer soru zaten tam ve bağımsızsa veya sohbet geçmişiyle ilgisizse, soruyu hiç değiştirmeden AYNEN döndür.
+
+Sohbet Geçmişi:
+{chat_history}
+
+Kullanıcının Son Sorusu:
+{question}
+
+Yeniden Yazılmış Bağımsız Soru:"""

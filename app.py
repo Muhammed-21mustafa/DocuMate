@@ -239,7 +239,8 @@ else:
                         query=user_prompt,
                         api_key=api_key,
                         mode=current_mode,
-                        llm_model=selected_llm_model
+                        llm_model=selected_llm_model,
+                        chat_history=st.session_state.messages[:-1]
                     )
                     
                     # Canlı Metin Akışı (Streaming)

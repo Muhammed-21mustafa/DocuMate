@@ -4,7 +4,7 @@ RAG Tabanlı Akıllı PDF Asistanı - Çekirdek Mantık ve Yardımcı Fonksiyonl
 
 import os
 import tempfile
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -21,7 +21,8 @@ from config import (
     MODE_STRICT,
     MODE_HYBRID,
     STRICT_SYSTEM_PROMPT,
-    HYBRID_SYSTEM_PROMPT
+    HYBRID_SYSTEM_PROMPT,
+    REWRITE_QUESTION_SYSTEM_PROMPT
 )
 
 
@@ -78,21 +79,79 @@ def create_faiss_vector_store(chunks: List[Document], api_key: str = None) -> FA
     return vector_store
 
 
+def format_chat_history(chat_history: List[Dict[str, Any]]) -> str:
+    """
+    Sohbet geçmişindeki tüm mesajları (kullanıcı ve asistan) metin olarak biçimlendirir.
+    """
+    if not chat_history:
+        return ""
+    
+    formatted_messages = []
+    for msg in chat_history:
+        role = "Kullanıcı" if msg.get("role") == "user" else "Asistan"
+        content = msg.get("content", "")
+        formatted_messages.append(f"{role}: {content}")
+        
+    return "\n".join(formatted_messages)
+
+
+def rewrite_question_with_history(
+    query: str,
+    chat_history: List[Dict[str, Any]],
+    api_key: str,
+    llm_model: str = DEFAULT_LLM_MODEL
+) -> str:
+    """
+    Sohbet geçmişi varsa kullanıcının takip sorusunu bağımsız (standalone) bir soruya dönüştürür.
+    Hata durumunda veya sohbet geçmişi yoksa orijinal soruyu aynen döndürür.
+    """
+    if not chat_history or not api_key:
+        return query
+
+    try:
+        formatted_history = format_chat_history(chat_history)
+        prompt_template = PromptTemplate(
+            template=REWRITE_QUESTION_SYSTEM_PROMPT,
+            input_variables=["chat_history", "question"]
+        )
+        formatted_prompt = prompt_template.format(
+            chat_history=formatted_history,
+            question=query
+        )
+
+        llm = ChatGoogleGenerativeAI(
+            model=llm_model,
+            google_api_key=api_key,
+            temperature=0.0
+        )
+        response = llm.invoke(formatted_prompt)
+        rewritten = response.content.strip()
+        return rewritten if rewritten else query
+    except Exception:
+        # Re-write başarısız olursa orijinal soru ile devam et
+        return query
+
+
 def answer_question_stream(
     vector_store: FAISS,
     query: str,
     api_key: str,
     mode: str = MODE_STRICT,
     llm_model: str = DEFAULT_LLM_MODEL,
+    chat_history: Optional[List[Dict[str, Any]]] = None,
     k: int = 4
 ) -> Tuple[Any, List[Document]]:
     """
-    Kullanıcının sorusuna seçilen moda göre canlı kelime akışı (generator) ve kaynak dokümanları döner.
-    Exception handling ve güvenli jeneratör yapısı içerir.
+    Kullanıcının sorusuna sohbet geçmişi (History-Aware RAG) ve canlı kelime akışı ile yanıt verir.
     """
-    # Vektör veritabanından en alakalı k parçayı getir
+    # Sohbet geçmişi varsa soruyu bağımsız sorguya dönüştür
+    search_query = query
+    if chat_history:
+        search_query = rewrite_question_with_history(query, chat_history, api_key, llm_model)
+
+    # Vektör veritabanından dönüştürülmüş arama sorgusu ile parçaları getir
     retriever = vector_store.as_retriever(search_kwargs={"k": k})
-    relevant_docs = retriever.invoke(query)
+    relevant_docs = retriever.invoke(search_query)
 
     # Bağlamı (context) sayfa bilgisiyle birleştir
     context_blocks = []
