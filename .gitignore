@@ -1,0 +1,27 @@
+# Environment Variables & Keys (Hassas Bilgiler)
+.env
+*.env
+!.env.example
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Streamlit Local Settings & Secrets
+.streamlit/secrets.toml
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+
+# Test PDFs & Output Databases
+*.pdf
+faiss_index/
