@@ -18,6 +18,11 @@ DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 
+# Hybrid Search Yapılandırmaları (BM25 + FAISS Ağırlıkları)
+HYBRID_WEIGHT_BM25 = 0.5
+HYBRID_WEIGHT_FAISS = 0.5
+RETRIEVER_K = 4
+
 # RAG Çalışma Modları
 MODE_STRICT = "strict"
 MODE_HYBRID = "hybrid"

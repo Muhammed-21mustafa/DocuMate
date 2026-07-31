@@ -13,6 +13,12 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 
+from langchain_community.retrievers import BM25Retriever
+try:
+    from langchain_classic.retrievers import EnsembleRetriever
+except ImportError:
+    from langchain_community.retrievers import EnsembleRetriever
+
 from config import (
     DEFAULT_LLM_MODEL,
     DEFAULT_EMBEDDING_MODEL,
@@ -22,7 +28,10 @@ from config import (
     MODE_HYBRID,
     STRICT_SYSTEM_PROMPT,
     HYBRID_SYSTEM_PROMPT,
-    REWRITE_QUESTION_SYSTEM_PROMPT
+    REWRITE_QUESTION_SYSTEM_PROMPT,
+    HYBRID_WEIGHT_BM25,
+    HYBRID_WEIGHT_FAISS,
+    RETRIEVER_K
 )
 
 
@@ -77,6 +86,29 @@ def create_faiss_vector_store(chunks: List[Document], api_key: str = None) -> FA
     embeddings = HuggingFaceEmbeddings(model_name=DEFAULT_EMBEDDING_MODEL)
     vector_store = FAISS.from_documents(chunks, embeddings)
     return vector_store
+
+
+def create_hybrid_retriever(
+    chunks: List[Document],
+    vector_store: FAISS,
+    k: int = RETRIEVER_K,
+    weight_bm25: float = HYBRID_WEIGHT_BM25,
+    weight_faiss: float = HYBRID_WEIGHT_FAISS
+) -> EnsembleRetriever:
+    """
+    BM25 (sparse keyword retriever) ile FAISS (dense vector retriever) motorlarını
+    EnsembleRetriever ile hibrit olarak birleştirir.
+    """
+    bm25_retriever = BM25Retriever.from_documents(chunks)
+    bm25_retriever.k = k
+
+    faiss_retriever = vector_store.as_retriever(search_kwargs={"k": k})
+
+    ensemble_retriever = EnsembleRetriever(
+        retrievers=[bm25_retriever, faiss_retriever],
+        weights=[weight_bm25, weight_faiss]
+    )
+    return ensemble_retriever
 
 
 def format_chat_history(chat_history: List[Dict[str, Any]]) -> str:
@@ -139,18 +171,22 @@ def answer_question_stream(
     mode: str = MODE_STRICT,
     llm_model: str = DEFAULT_LLM_MODEL,
     chat_history: Optional[List[Dict[str, Any]]] = None,
-    k: int = 4
+    retriever: Any = None,
+    k: int = RETRIEVER_K
 ) -> Tuple[Any, List[Document]]:
     """
     Kullanıcının sorusuna sohbet geçmişi (History-Aware RAG) ve canlı kelime akışı ile yanıt verir.
+    Eğer hibrit retriever sağlanırsa onu kullanır, aksi halde FAISS retriever kullanır.
     """
     # Sohbet geçmişi varsa soruyu bağımsız sorguya dönüştür
     search_query = query
     if chat_history:
         search_query = rewrite_question_with_history(query, chat_history, api_key, llm_model)
 
-    # Vektör veritabanından dönüştürülmüş arama sorgusu ile parçaları getir
-    retriever = vector_store.as_retriever(search_kwargs={"k": k})
+    # Arama motoru belirleme (Hibrit retriever varsa öncelikli kullan)
+    if retriever is None:
+        retriever = vector_store.as_retriever(search_kwargs={"k": k})
+
     relevant_docs = retriever.invoke(search_query)
 
     # Bağlamı (context) sayfa bilgisiyle birleştir

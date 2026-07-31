@@ -11,6 +11,7 @@ from utils import (
     load_pdf_with_page_metadata,
     split_documents,
     create_faiss_vector_store,
+    create_hybrid_retriever,
     answer_question,
     answer_question_stream
 )
@@ -74,6 +75,9 @@ if "messages" not in st.session_state:
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 
+if "hybrid_retriever" not in st.session_state:
+    st.session_state.hybrid_retriever = None
+
 if "pdf_processed" not in st.session_state:
     st.session_state.pdf_processed = False
 
@@ -113,7 +117,7 @@ with st.sidebar:
     if uploaded_file and api_key:
         # Eğer yeni bir dosya yüklendiyse veya henüz işlenmediyse
         if st.session_state.pdf_stats["filename"] != uploaded_file.name:
-            with st.spinner("PDF ayrıştırılıyor ve vektör veritabanı oluşturuluyor..."):
+            with st.spinner("PDF ayrıştırılıyor ve hibrit vektör indeksleri oluşturuluyor..."):
                 try:
                     # PDF Yükle & Sayfa Sayısını Al
                     docs, total_pages = load_pdf_with_page_metadata(uploaded_file)
@@ -124,8 +128,12 @@ with st.sidebar:
                     # Vektör Veritabanı (FAISS)
                     vector_store = create_faiss_vector_store(chunks, api_key)
                     
+                    # Hybrid Retriever (BM25 + FAISS Ensemble)
+                    hybrid_retriever = create_hybrid_retriever(chunks, vector_store)
+                    
                     # State Güncelle
                     st.session_state.vector_store = vector_store
+                    st.session_state.hybrid_retriever = hybrid_retriever
                     st.session_state.pdf_processed = True
                     st.session_state.pdf_stats = {
                         "pages": total_pages,
@@ -133,7 +141,7 @@ with st.sidebar:
                         "filename": uploaded_file.name
                     }
                     st.session_state.messages = []  # Yeni PDF için sohbeti sıfırla
-                    st.success("✅ PDF başarıyla indekslendi!")
+                    st.success("✅ PDF hibrit indeks ile başarıyla yüklendi!")
                 except Exception as e:
                     st.error(f"Hata oluştu: {str(e)}")
                     
@@ -240,7 +248,8 @@ else:
                         api_key=api_key,
                         mode=current_mode,
                         llm_model=selected_llm_model,
-                        chat_history=st.session_state.messages[:-1]
+                        chat_history=st.session_state.messages[:-1],
+                        retriever=st.session_state.hybrid_retriever
                     )
                     
                     # Canlı Metin Akışı (Streaming)
