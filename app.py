@@ -11,7 +11,8 @@ from utils import (
     load_pdf_with_page_metadata,
     split_documents,
     create_faiss_vector_store,
-    answer_question
+    answer_question,
+    answer_question_stream
 )
 
 # .env dosyasını yükle
@@ -78,6 +79,9 @@ if "pdf_processed" not in st.session_state:
 
 if "pdf_stats" not in st.session_state:
     st.session_state.pdf_stats = {"pages": 0, "chunks": 0, "filename": ""}
+
+if "is_generating" not in st.session_state:
+    st.session_state.is_generating = False
 
 
 # --- SOL YAN MENÜ (SIDEBAR) ---
@@ -213,8 +217,11 @@ else:
                         st.caption(f"_{doc.page_content.strip()}_")
                         st.divider()
 
-    # Kullanıcı Girdisi Alanı
-    if user_prompt := st.chat_input("PDF içeriği hakkında bir soru sorun..."):
+    # Kullanıcı Girdisi Alanı (Yanıt üretilirken kilitlenir)
+    if user_prompt := st.chat_input(
+        "PDF içeriği hakkında bir soru sorun...",
+        disabled=st.session_state.is_generating
+    ):
         if not api_key:
             st.error("Lütfen önce sol panelden API anahtarınızı girin.")
         else:
@@ -223,34 +230,37 @@ else:
             with st.chat_message("user"):
                 st.markdown(user_prompt)
 
-            # Asistan yanıtını üret
+            # Asistan yanıtını canlı stream ile üret
+            st.session_state.is_generating = True
             with st.chat_message("assistant"):
-                with st.spinner("Dokümanda aranıyor ve yanıt hazırlanıyor..."):
-                    try:
-                        answer, sources = answer_question(
-                            vector_store=st.session_state.vector_store,
-                            query=user_prompt,
-                            api_key=api_key,
-                            mode=current_mode,
-                            llm_model=selected_llm_model
-                        )
-                        
-                        st.markdown(answer)
-                        
-                        # Kaynakları Göster
-                        if sources:
-                            with st.expander("📌 Yanıtta Kullanılan Kaynaklar ve Sayfalar"):
-                                for idx, doc in enumerate(sources, 1):
-                                    page_num = doc.metadata.get("page", "Bilinmiyor")
-                                    st.markdown(f"**Kaynak {idx} (Sayfa {page_num}):**")
-                                    st.caption(f"_{doc.page_content.strip()}_")
-                                    st.divider()
-                                    
-                        # Mesajı geçmişe kaydet
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": answer,
-                            "sources": sources
-                        })
-                    except Exception as e:
-                        st.error(f"Yanıt üretilirken bir hata oluştu: {str(e)}")
+                try:
+                    stream_gen, sources = answer_question_stream(
+                        vector_store=st.session_state.vector_store,
+                        query=user_prompt,
+                        api_key=api_key,
+                        mode=current_mode,
+                        llm_model=selected_llm_model
+                    )
+                    
+                    # Canlı Metin Akışı (Streaming)
+                    full_response = st.write_stream(stream_gen)
+                    
+                    # Kaynakları Göster
+                    if sources:
+                        with st.expander("📌 Yanıtta Kullanılan Kaynaklar ve Sayfalar"):
+                            for idx, doc in enumerate(sources, 1):
+                                page_num = doc.metadata.get("page", "Bilinmiyor")
+                                st.markdown(f"**Kaynak {idx} (Sayfa {page_num}):**")
+                                st.caption(f"_{doc.page_content.strip()}_")
+                                st.divider()
+                                
+                    # Mesajı ve kaynakları geçmişe kaydet
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": full_response,
+                        "sources": sources
+                    })
+                except Exception as e:
+                    st.error(f"Yanıt üretilirken bir hata oluştu: {str(e)}")
+                finally:
+                    st.session_state.is_generating = False
