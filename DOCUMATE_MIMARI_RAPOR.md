@@ -13,7 +13,7 @@ Kullanıcılar 60-70 sayfalık (veya daha uzun) ders notlarını veya teknik dok
 3. **Kaynak Gösterilememesi:** Cevabın PDF'in tam olarak hangi sayfasından ve hangi paragrafından alındığı teyit edilemez.
 
 ### Çözüm: DocuMate Nasıl Çözer?
-DocuMate; metni sayfa bazlı indeksleyen yerel embedding modelleri (`all-MiniLM-L6-v2`), kelime ve anlamsal aramayı birleştiren **Hibrit Arama (BM25 + FAISS)**, sohbet hafızasını yöneten **Soru Yeniden Yazıcı (Query Rewriter)** ve **Çift Modlu Prompt Mimarısı** ile bu problemleri tamamen ortadan kaldırır.
+DocuMate; metni sayfa bazlı indeksleyen yerel embedding modelleri (`all-MiniLM-L6-v2`), kelime ve anlamsal aramayı birleştiren **Hibrit Arama (BM25 + FAISS)**, sohbet hafızasını yöneten **Soru Yeniden Yazıcı (Query Rewriter)**, dokümanın tamamını kapsayan **Map-Reduce Özetleme** ve **Çift Modlu Prompt Mimarısı** ile doküman sadakatini önceliklendirerek halüsinasyon riskini en aza indirir.
 
 ---
 
@@ -32,28 +32,26 @@ DocuMate üzerindeki bir kullanıcının PDF yükleme ve soru sorma adımlarınd
            (RecursiveCharacterTextSplitter)
             (chunk_size=1000, overlap=200)
                           │
-            ┌─────────────┴─────────────┐
-            ▼                           ▼
-    [ BM25 Retriever ]         [ Yerel Embedding ]
-  (Sparse Keyword Matching)    (all-MiniLM-L6-v2)
-            │                           │
-            │                  [ FAISS Vector Store ]
-            │                  (Dense Semantic Search)
-            └─────────────┬─────────────┘
-                          ▼
-              [ EnsembleRetriever (0.5 / 0.5) ]
+           (Sohbet Sorusu veya Özet İsteği)
                           │
-                          │ ◄─── (Kullanıcı Takip Sorusu)
-                          │
-           [ Soru Yeniden Yazıcı (Rewriter) ]
-           (Sohbet Geçmişini Bağımsız Soruya Çevirir)
-                          │
-                          ▼
-               [ En Alakalı K Paragraf ]
-                          │
-               [ Çift Modlu Prompt Şablonu ]
-               (Katı Sınav Modu vs. Hibrit Mod)
-                          │
+           [ is_summary_request Kontrolü ]
+            /                           \
+       (Evet)                          (Hayır)
+         │                                │
+         ▼                                ▼
+[ Map-Reduce Özet ]            [ Question Rewriter ]
+(Sıralı Parça Taraması)       (Bağımsız Sorgu Oluşturur)
+         │                                │
+         │                     ┌──────────┴──────────┐
+         │                     ▼                     ▼
+         │             [ BM25 Retriever ]    [ FAISS Vector Store ]
+         │             (Keyword Matching)    (Semantic Search)
+         │                     └──────────┬──────────┘
+         │                                ▼
+         │                    [ EnsembleRetriever ]
+         │                    (0.5 BM25 / 0.5 FAISS)
+         │                                │
+         └────────────────┬───────────────┘
                           ▼
             [ Gemini 2.5 Flash API (Streaming) ]
                           │
@@ -140,6 +138,28 @@ Kullanıcının Son Sorusu:
 {question}
 
 Yeniden Yazılmış Bağımsız Soru:
+```
+
+---
+
+### 4. 📄 Tam Doküman Map-Reduce Özetleme Promptu (`SUMMARY_REDUCE_PROMPT`)
+* **Mantık:** Dokümanın tüm kısımları sıralı ve kontrollü olarak taranır (Map), elde edilen ara özetler birleştirilerek tek bir yapılandırılmış final özete dönüştürülür (Reduce).
+* **Kullanım Amacı:** 100+ sayfalık bir dokümanın genel hatlarını ve ana felsefesini tek seferde kavramak isteyen kullanıcılar için.
+
+```text
+Aşağıda uzun bir PDF dokümanının farklı bölümlerinden elde edilen ara özetler verilmiştir.
+
+Görev: Bu ara özetleri birleştirerek tüm dokümanı kapsayan, akıcı, anlaşılır ve yapılandırılmış profesyonel bir FİNAL DOKÜMAN ÖZETİ oluştur.
+
+Lütfen çıktıyı şu başlıklar altında düzenle:
+📌 1. Dokümanın Ana Konusu ve Amacı
+📚 2. Öne Çıkan Ana Başlıklar ve Özetler
+💡 3. Kritik Tanımlar ve Sonuç
+
+Ara Özetler:
+{context}
+
+Final Doküman Özeti:
 ```
 
 ---

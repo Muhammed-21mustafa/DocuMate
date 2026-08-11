@@ -8,18 +8,21 @@
 
 Kullanıcıların kendi PDF dokümanlarını (ders notları, kitaplar, makaleler, şartnameler) yükleyerek içindeki bilgilerle sohbet edebilmesini sağlayan yerel (local) bir **Retrieval-Augmented Generation (RAG)** sistemidir.
 
-Proje, genel LLM modellerinin halüsinasyon görmesini engellemek ve yüklenen dokümana %100 sadık kalarak **sayfa numaralı kaynak gösterimi (citation)** sunmak amacıyla geliştirilmiştir.
+Proje, genel LLM modellerinin halüsinasyon görmesini engellemek, doküman sadakatini önceliklendirerek halüsinasyon riskini en aza indirmek ve yüklenen dokümana sadık kalarak **sayfa numaralı kaynak gösterimi (citation)** sunmak amacıyla geliştirilmiştir.
 
 ---
 
 ## 🌟 Öne Çıkan Özellikler
 
+- **🔍 Hibrit Arama (BM25 + FAISS Ensemble):** Birebir kelime/kısaltma eşleşmesi için BM25 ile anlamsal vektör aramasını (FAISS) birleştirerek en alakalı metin parçalarını yakalar.
+- **📑 Tam Doküman Map-Reduce Özetleme:** Uzun PDF'lerin tamamını gruplayarak sırayla taranan ara özetlerden yapılandırılmış, profesyonel bir doküman özeti üretir.
+- **🔄 Sohbet Hafızası (History-Aware Rewriter):** Kullanıcının takip sorularını sohbet geçmişinden bağımsız net sorgulara dönüştürür.
+- **⚡ Yerel Embeddings (all-MiniLM-L6-v2):** Doküman parçalaması ve vektörleşme tamamen yerel HuggingFace modelleriyle sıfır embedding API maliyetiyle gerçekleşir.
 - **🎯 Çift Modlu RAG (Dual-Mode RAG Architecture):**
-  - **Katı Sınav Modu (Strict Grounding):** Sadece ve sadece yüklenen PDF'teki bilgilere dayanır. PDF'te olmayan sorular için halüsinasyon görmez, *"Dokümanda bulunmamaktadır"* yanıtı verir.
+  - **Katı Sınav Modu (Strict Grounding):** Sadece ve sadece yüklenen PDF'teki bilgilere dayanır. PDF'te olmayan sorular için halüsinasyon riskini önlemek adına *"Dokümanda bulunmamaktadır"* yanıtı verir.
   - **Öğretmen / Hibrit Mod (Hybrid Learning):** PDF'teki bilgiyi sunduktan sonra, konunun anlaşılması için eksik kalan kod örneklerini ve detayları `💡 Öğretmen Notu (PDF Dışı Ek Bilgi)` başlığı altında ayrıştırarak sunar.
 - **📌 Sayfa Numaralı Kaynak Gösterimi (Page Citations):** Üretilen her yanıtın altında, bilginin PDF'in tam olarak hangi sayfasından ve hangi paragrafından alındığı açılır kartlar (expander) şeklinde gösterilir.
-- **⚡ Bellek İçi Vektör Araması (FAISS):** Metin parçaları Google Gemini Embedding modeli ile vektörleştirilerek yerel bellekte milisaniyeler içinde taranır.
-- **🔒 Güvenli API Anahtarı Yönetimi:** `.env` desteği ve arayüzden dinamik API Key girişi.
+- **⚡ Canlı Metin Akışı (Streaming):** Yanıtlar kullanıcıya kelime kelime canlı akar.
 
 ---
 
@@ -27,9 +30,9 @@ Proje, genel LLM modellerinin halüsinasyon görmesini engellemek ve yüklenen d
 
 - **Kullanıcı Arayüzü:** [Streamlit](https://streamlit.io/)
 - **RAG Orkestrasyonu:** [LangChain](https://www.langchain.com/)
-- **Vektör Veritabanı:** [FAISS](https://github.com/facebookresearch/faiss)
+- **Vektör & Kelime Veritabanı:** [FAISS](https://github.com/facebookresearch/faiss) & [BM25 (rank-bm25)](https://pypi.org/project/rank-bm25/)
 - **Metin İşleme & PDF Parsing:** `PyPDF` / `RecursiveCharacterTextSplitter`
-- **LLM & Embeddings:** Google Gemini API (`gemini-1.5-flash` & `text-embedding-004`)
+- **LLM & Embeddings:** Google Gemini API (`gemini-2.5-flash`) & Yerel `all-MiniLM-L6-v2` (`sentence-transformers`)
 
 ---
 
@@ -38,8 +41,9 @@ Proje, genel LLM modellerinin halüsinasyon görmesini engellemek ve yüklenen d
 ```
 RagProject/
 ├── app.py               # Streamlit kullanıcı arayüzü ve sohbet akışı
-├── utils.py             # Sayfa bazlı PDF işleme, FAISS indeksleme ve RAG sorgulama
-├── config.py            # Model yapılandırmaları ve katı/hibrit prompt şablonları
+├── utils.py             # Sayfa bazlı PDF işleme, BM25+FAISS indeksleme, Map-Reduce ve RAG sorgulama
+├── config.py            # Model yapılandırmaları, RAG ağırlıkları ve prompt şablonları
+├── tests/               # Streaming, Sohbet Hafızası, Hibrit Arama ve Özetleme birim testleri
 ├── requirements.txt     # Bağımlılıklar
 ├── .env.example         # Çevre değişkeni örneği
 └── README.md            # Proje dokümantasyonu
@@ -49,9 +53,9 @@ RagProject/
 
 1. **Load (Yükleme):** Yüklenen PDF `PyPDFLoader` ile okunur ve her sayfanın numarası metadata olarak kaydedilir.
 2. **Chunking (Bölme):** Uzun metinler `RecursiveCharacterTextSplitter` ile 1000 karakterlik parçalara bölünür (sayfa numarası korunur).
-3. **Embedding & Vector Store:** Metinler Gemini Embedding modeli ile vektörleştirilip FAISS veritabanına aktarılır.
-4. **Retrieval (Arama):** Kullanıcı soru sorduğunda vektör benzerliği ile en alakalı parçalar bulunur.
-5. **Generation (Üretim):** Seçilen moda (Katı veya Hibrit) uygun prompt ile Gemini LLM'e gönderilerek sayfa referanslı yanıt üretilir.
+3. **Embedding & Hybrid Index:** Metinler yerel `all-MiniLM-L6-v2` ile vektörleştirilip FAISS veritabanına ve kelimesel arama için BM25 indeksine aktarılır.
+4. **Question Rewrite & Retrieval:** Takip soruları geçmişle birleştirilerek bağımsız sorguya dönüştürülür ve `EnsembleRetriever` (0.5 BM25 + 0.5 FAISS) ile en alakalı parçalar getirilir.
+5. **Generation & Streaming:** Seçilen moda (Katı, Hibrit veya Map-Reduce Özet) uygun prompt ile Gemini LLM'e gönderilerek canlı yayın olarak yanıt üretilir.
 
 ---
 

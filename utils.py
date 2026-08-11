@@ -29,6 +29,9 @@ from config import (
     STRICT_SYSTEM_PROMPT,
     HYBRID_SYSTEM_PROMPT,
     REWRITE_QUESTION_SYSTEM_PROMPT,
+    SUMMARY_KEYWORDS,
+    SUMMARY_MAP_PROMPT,
+    SUMMARY_REDUCE_PROMPT,
     HYBRID_WEIGHT_BM25,
     HYBRID_WEIGHT_FAISS,
     RETRIEVER_K
@@ -264,3 +267,84 @@ def answer_question(
     answer = response.content
 
     return answer, relevant_docs
+
+
+def is_summary_request(query: str) -> bool:
+    """
+    Kullanıcının sorusunun tüm dokümanı kapsayan bir özetleme isteği olup olmadığını kontrol eder.
+    """
+    if not query:
+        return False
+    query_lower = query.lower()
+    return any(keyword in query_lower for keyword in SUMMARY_KEYWORDS)
+
+
+def generate_full_document_summary_stream(
+    chunks: List[Document],
+    api_key: str,
+    llm_model: str = DEFAULT_LLM_MODEL,
+    max_map_batches: int = 6
+) -> Tuple[Any, List[Document]]:
+    """
+    Tüm doküman parçalarından kontrollü/sıralı Map-Reduce özetleme yapar ve sonucu canlı yayın olarak döner.
+    Rate limit aşımını önlemek için parçaları sıralı gruplar halinde işler.
+    """
+    if not chunks:
+        def empty_gen():
+            yield "Doküman metin parçaları bulunamadı."
+        return empty_gen(), []
+
+    # Parçaları sıralı gruplara böl (tüm dokümanı kapsayacak şekilde)
+    step = max(1, len(chunks) // max_map_batches)
+    selected_chunks = chunks[::step][:max_map_batches]
+
+    llm = ChatGoogleGenerativeAI(
+        model=llm_model,
+        google_api_key=api_key,
+        temperature=0.2
+    )
+
+    # 1. Map Evresi: Sıralı ve kontrollü ara özetler üret (Rate limit korumalı)
+    intermediate_summaries = []
+    map_template = PromptTemplate(
+        template=SUMMARY_MAP_PROMPT,
+        input_variables=["context"]
+    )
+
+    for idx, chunk in enumerate(selected_chunks, 1):
+        try:
+            page_num = chunk.metadata.get("page", "?")
+            prompt = map_template.format(context=chunk.page_content)
+            res = llm.invoke(prompt)
+            if res and res.content:
+                intermediate_summaries.append(f"[Bölüm {idx} - Sayfa {page_num}]:\n{res.content}")
+        except Exception:
+            continue
+
+    combined_map_text = "\n\n---\n\n".join(intermediate_summaries)
+    if not combined_map_text:
+        combined_map_text = "\n\n".join([c.page_content for c in selected_chunks])
+
+    # 2. Reduce Evresi: Ara özetleri birleştir ve canlı yayınla üret
+    reduce_template = PromptTemplate(
+        template=SUMMARY_REDUCE_PROMPT,
+        input_variables=["context"]
+    )
+    reduce_prompt = reduce_template.format(context=combined_map_text)
+
+    llm_stream = ChatGoogleGenerativeAI(
+        model=llm_model,
+        google_api_key=api_key,
+        temperature=0.3,
+        streaming=True
+    )
+
+    def summary_stream_generator():
+        try:
+            for chunk in llm_stream.stream(reduce_prompt):
+                if chunk and chunk.content:
+                    yield chunk.content
+        except Exception as e:
+            yield f"\n\n⚠️ **Hata:** Özet akışı sırasında bir sorun oluştu: {str(e)}"
+
+    return summary_stream_generator(), selected_chunks

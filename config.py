@@ -82,3 +82,32 @@ Kullanıcının Son Sorusu:
 {question}
 
 Yeniden Yazılmış Bağımsız Soru:"""
+
+# Özet İstek Kelimeleri
+SUMMARY_KEYWORDS = [
+    "özet", "özetle", "özetini", "özetler misin", "özeti",
+    "ana hatları", "genel bakış", "ne anlatıyor", "doküman özeti"
+]
+
+SUMMARY_MAP_PROMPT = """Aşağıdaki metin parçası uzun bir PDF dokümanının bir bölümüdür.
+
+Görev: Bu metin parçasındaki ana fikirleri, önemli tanımları ve öne çıkan noktaları maddeler halinde özetle.
+
+Metin Parçası:
+{context}
+
+Bölüm Özeti:"""
+
+SUMMARY_REDUCE_PROMPT = """Aşağıda uzun bir PDF dokümanının farklı bölümlerinden elde edilen ara özetler verilmiştir.
+
+Görev: Bu ara özetleri birleştirerek tüm dokümanı kapsayan, akıcı, anlaşılır ve yapılandırılmış profesyonel bir FİNAL DOKÜMAN ÖZETİ oluştur.
+
+Lütfen çıktıyı şu başlıklar altında düzenle:
+📌 **1. Dokümanın Ana Konusu ve Amacı**
+📚 **2. Öne Çıkan Ana Başlıklar ve Özetler**
+💡 **3. Kritik Tanımlar ve Sonuç**
+
+Ara Özetler:
+{context}
+
+Final Doküman Özeti:"""

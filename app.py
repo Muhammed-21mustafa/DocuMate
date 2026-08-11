@@ -13,7 +13,9 @@ from utils import (
     create_faiss_vector_store,
     create_hybrid_retriever,
     answer_question,
-    answer_question_stream
+    answer_question_stream,
+    is_summary_request,
+    generate_full_document_summary_stream
 )
 
 # .env dosyasını yükle
@@ -75,6 +77,9 @@ if "messages" not in st.session_state:
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 
+if "pdf_chunks" not in st.session_state:
+    st.session_state.pdf_chunks = []
+
 if "hybrid_retriever" not in st.session_state:
     st.session_state.hybrid_retriever = None
 
@@ -134,6 +139,7 @@ with st.sidebar:
                     # State Güncelle
                     st.session_state.vector_store = vector_store
                     st.session_state.hybrid_retriever = hybrid_retriever
+                    st.session_state.pdf_chunks = chunks
                     st.session_state.pdf_processed = True
                     st.session_state.pdf_stats = {
                         "pages": total_pages,
@@ -242,15 +248,23 @@ else:
             st.session_state.is_generating = True
             with st.chat_message("assistant"):
                 try:
-                    stream_gen, sources = answer_question_stream(
-                        vector_store=st.session_state.vector_store,
-                        query=user_prompt,
-                        api_key=api_key,
-                        mode=current_mode,
-                        llm_model=selected_llm_model,
-                        chat_history=st.session_state.messages[:-1],
-                        retriever=st.session_state.hybrid_retriever
-                    )
+                    if is_summary_request(user_prompt):
+                        with st.spinner("Dokümanın tüm bölümleri taranıyor ve Map-Reduce özet oluşturuluyor..."):
+                            stream_gen, sources = generate_full_document_summary_stream(
+                                chunks=st.session_state.pdf_chunks,
+                                api_key=api_key,
+                                llm_model=selected_llm_model
+                            )
+                    else:
+                        stream_gen, sources = answer_question_stream(
+                            vector_store=st.session_state.vector_store,
+                            query=user_prompt,
+                            api_key=api_key,
+                            mode=current_mode,
+                            llm_model=selected_llm_model,
+                            chat_history=st.session_state.messages[:-1],
+                            retriever=st.session_state.hybrid_retriever
+                        )
                     
                     # Canlı Metin Akışı (Streaming)
                     full_response = st.write_stream(stream_gen)
